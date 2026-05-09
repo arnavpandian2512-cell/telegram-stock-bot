@@ -14,7 +14,7 @@ from datetime import datetime, time as dtime
 # ========= CONFIG =========
 TEST_MODE = True
 TELEGRAM_TOKEN = "8677296958:AAHVXYGWD1iriKts05lD8Tom65_u8sq7o1w"
-CHAT_ID = "239576429"
+CHAT_ID = "973055666"
 
 alerted_today = set()
 opening_range = {}
