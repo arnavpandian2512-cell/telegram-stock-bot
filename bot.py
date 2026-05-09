@@ -4,6 +4,7 @@ Created on Sun May 10 00:24:53 2026
 
 @author: Admin
 """
+import os
 import yfinance as yf
 import requests
 import pandas as pd
@@ -12,8 +13,8 @@ from datetime import datetime, time as dtime
 
 # ========= CONFIG =========
 TEST_MODE = True
-TELEGRAM_TOKEN = "YOUR_BOT_TOKEN"
-CHAT_ID = "YOUR_CHAT_ID"
+TELEGRAM_TOKEN = "8677296958:AAHVXYGWD1iriKts05lD8Tom65_u8sq7o1w"
+CHAT_ID = "239576429"
 
 alerted_today = set()
 opening_range = {}
