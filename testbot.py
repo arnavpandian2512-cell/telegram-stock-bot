@@ -1,10 +1,10 @@
+
 # -*- coding: utf-8 -*-
 """
 Created on Sun May 10 00:24:53 2026
 
 @author: Admin
 """
-import os
 import yfinance as yf
 import requests
 import pandas as pd
@@ -143,12 +143,6 @@ def scan_and_alert():
         except Exception as e:
             print("Error:", ticker, e)
 
-# ========= LOOP =========
-print("BOT STARTED")
-while True:
-    if is_market_open():
-        gap_scanner()
-        scan_and_alert()
-    else:
-        print("Market closed…")
-    time.sleep(900)
+# ========= TELEGRAM TEST =========
+if __name__ == "__main__":
+    send_telegram_msg("✅ Telegram bot connected successfully!")
