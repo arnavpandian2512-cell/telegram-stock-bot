@@ -1,7 +1,8 @@
 services:
-  - type: worker
+  - type: cron
     name: stock-orb-bot
-    runtime: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: python bot.py
+    env: python
     plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python bot_v1.py"
+    schedule: "*/10 * * * *"
