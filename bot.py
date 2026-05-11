@@ -18,6 +18,9 @@ import os
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
+# ========= FLASK APP =========
+app = Flask(__name__)
+
 # ========= TIMEZONE =========
 IST = pytz.timezone("Asia/Kolkata")
 
@@ -209,41 +212,36 @@ def scan_and_alert():
         except Exception as e:
             print("Error",ticker,e)
 
-# ========= LOOP =========
-print("🚀 BOT STARTED")
-
 # ================================
-# BACKGROUND BOT LOOP (Render Safe)
+# RUN BOT LOOP
 # ================================
-
 def run_bot():
     print("🚀 BOT STARTED (Render Web Service)")
-    send_telegram_msg("🤖 Paper trading Bot started")
+    send_telegram_msg("🤖 Paper Trading Bot LIVE on Cloud")
 
     while True:
         try:
             if is_market_open():
-                print("✅ Market OPEN → Scanning market")
+                print("✅ Market OPEN")
                 scan_and_alert()
             else:
                 print("😴 Market closed")
 
             daily_reset()
+            time.sleep(600)
 
         except Exception as e:
-            print("❌ Bot loop error:", e)
-
-        time.sleep(300)   # run every 5 minutes
+            print("Bot error:", e)
 
 
 # ================================
-# START BACKGROUND THREAD
+# START BOT IN BACKGROUND THREAD
 # ================================
 Thread(target=run_bot, daemon=True).start()
 
 
 # ================================
-# FLASK ROUTE (Required by Render)
+# WEB ROUTE (Render needs this)
 # ================================
 @app.route("/")
 def home():
@@ -251,7 +249,7 @@ def home():
 
 
 # ================================
-# START WEB SERVER (Render needs this)
+# START WEB SERVER
 # ================================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
