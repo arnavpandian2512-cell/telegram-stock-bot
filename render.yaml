@@ -3,5 +3,5 @@ services:
     name: stock-orb-bot
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: python bot_v1.py
+    startCommand: python bot.py
     plan: free
