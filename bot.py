@@ -10,6 +10,8 @@ import pandas as pd
 import time
 import pytz
 from datetime import datetime, time as dtime
+import time
+from datetime import datetime
 
 # ========= TELEGRAM FROM ENV =========
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -203,17 +205,23 @@ def scan_and_alert():
             print("Error",ticker,e)
 
 # ========= LOOP =========
-print("BOT STARTED 🚀")
-send_telegram_msg("🤖 ORB Paper Trading Bot Running")
 
-print("\n⏱ Running scheduled scan...")
+print("🚀 BOT STARTED (Render Free Version)")
 
-if is_market_open():
-    print("✅ Market OPEN")
-    scan_and_alert()
-else:
-    print("😴 Market closed")
+while True:
+    try:
+        now = datetime.now()
+        print(f"\n⏱ Heartbeat: {now}")
 
-daily_reset()
+        if is_market_open():
+            print("✅ Market OPEN")
+            scan_and_alert()
+        else:
+            print("😴 Market closed")
 
-print("🏁 Job Finished")
+        daily_reset()
+
+    except Exception as e:
+        print("❌ Bot error:", e)
+
+    time.sleep(600)  # run every 10 mins

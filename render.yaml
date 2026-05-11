@@ -1,8 +1,7 @@
 services:
-  - type: cron
-    name: stock-orb-bot
+  - type: web
+    name: telegram-stock-bot
     env: python
     plan: free
     buildCommand: "pip install -r requirements.txt"
     startCommand: "python bot_v1.py"
-    schedule: "*/10 * * * *"
