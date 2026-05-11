@@ -14,13 +14,6 @@ from flask import Flask
 from threading import Thread
 import os
 
-
-app = Flask(__name__)
-
-@app.route("/")
-def home():
-    return "Stock bot running!"
-
 # ========= TELEGRAM =========
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
