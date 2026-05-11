@@ -206,12 +206,14 @@ def scan_and_alert():
 print("BOT STARTED 🚀")
 send_telegram_msg("🤖 ORB Paper Trading Bot Running")
 
-while True:
-    if is_market_open():
-        print("✅ Market OPEN")
-        scan_and_alert()
-    else:
-        print("😴 Market closed")
+print("\n⏱ Running scheduled scan...")
 
-    daily_reset()
-    time.sleep(300)  # 5 minutes
+if is_market_open():
+    print("✅ Market OPEN")
+    scan_and_alert()
+else:
+    print("😴 Market closed")
+
+daily_reset()
+
+print("🏁 Job Finished")
