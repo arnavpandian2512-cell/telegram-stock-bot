@@ -1,154 +1,217 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Sun May 10 00:24:53 2026
+# ================================
+# NIFTY50 ORB + VWAP PAPER TRADING BOT
+# Cloud Ready (Render)
+# ================================
 
-@author: Admin
-"""
 import os
 import yfinance as yf
 import requests
 import pandas as pd
 import time
+import pytz
 from datetime import datetime, time as dtime
 
-# ========= CONFIG =========
-TEST_MODE = False
-TELEGRAM_TOKEN = "8677296958:AAHVXYGWD1iriKts05lD8Tom65_u8sq7o1w"
-CHAT_ID = "973055666"
+# ========= TELEGRAM FROM ENV =========
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 
-alerted_today = set()
+# ========= TIMEZONE =========
+IST = pytz.timezone("Asia/Kolkata")
+
+# ========= PAPER TRADING =========
+capital = 100000
+RISK_PER_TRADE = 0.01
+open_trades = {}
 opening_range = {}
-gap_up_today = set()
-gap_down_today = set()
-gap_scan_done = False
+alerted_today = set()
+orb_captured = set()
 
 # ========= TELEGRAM =========
 def send_telegram_msg(message):
-    if TEST_MODE:
-        print("\n📢 TELEGRAM MESSAGE:\n", message)
+    if not TELEGRAM_TOKEN:
+        print(message)
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"}
-    requests.post(url, json=payload)
+    requests.post(url,json={"chat_id":CHAT_ID,"text":message})
 
-# ========= NIFTY50 =========
+# ========= NIFTY50 LIST =========
 def get_nifty50_symbols():
-    url = "https://archives.nseindia.com/content/indices/ind_nifty50list.csv"
-    df = pd.read_csv(url)
-    return [s + ".NS" for s in df['Symbol'].tolist()]
+    url="https://archives.nseindia.com/content/indices/ind_nifty50list.csv"
+    df=pd.read_csv(url)
+    return [s+".NS" for s in df['Symbol'].tolist()]
 
 SYMBOLS = get_nifty50_symbols()
 
 # ========= MARKET HOURS =========
 def is_market_open():
-    now = datetime.now()
+    now = datetime.now(IST)
     if now.weekday() >= 5:
         return False
-    if now.hour < 9 or (now.hour == 9 and now.minute < 15):
+    if now.time() < dtime(9,15):
         return False
-    if now.hour > 15 or (now.hour == 15 and now.minute > 30):
+    if now.time() > dtime(15,30):
         return False
     return True
 
+# ========= POSITION SIZING =========
+def calculate_qty(entry, sl):
+    risk_amount = capital * RISK_PER_TRADE
+    risk_per_share = abs(entry - sl)
+    qty = int(risk_amount / risk_per_share)
+    return max(qty,1)
+
+def open_trade(ticker, direction, entry, sl, target):
+    qty = calculate_qty(entry, sl)
+    open_trades[ticker] = {"dir":direction,"entry":entry,"sl":sl,"target":target,"qty":qty}
+    return qty
+
+# ========= EXIT MANAGEMENT =========
+def check_exit(ticker, price):
+    global capital
+    if ticker not in open_trades:
+        return None
+
+    t = open_trades[ticker]
+
+    # LONG EXIT
+    if t["dir"]=="BUY":
+        if price <= t["sl"]:
+            loss = (t["entry"]-t["sl"])*t["qty"]
+            capital -= loss
+            del open_trades[ticker]
+            return f"❌ SL HIT {ticker}\nLoss ₹{round(loss,2)}\nCapital ₹{round(capital,2)}"
+
+        if price >= t["target"]:
+            profit = (t["target"]-t["entry"])*t["qty"]
+            capital += profit
+            del open_trades[ticker]
+            return f"✅ TARGET HIT {ticker}\nProfit ₹{round(profit,2)}\nCapital ₹{round(capital,2)}"
+
+    # SHORT EXIT
+    if t["dir"]=="SELL":
+        if price >= t["sl"]:
+            loss = (t["sl"]-t["entry"])*t["qty"]
+            capital -= loss
+            del open_trades[ticker]
+            return f"❌ SL HIT {ticker}\nLoss ₹{round(loss,2)}\nCapital ₹{round(capital,2)}"
+
+        if price <= t["target"]:
+            profit = (t["entry"]-t["target"])*t["qty"]
+            capital += profit
+            del open_trades[ticker]
+            return f"✅ TARGET HIT {ticker}\nProfit ₹{round(profit,2)}\nCapital ₹{round(capital,2)}"
+
 # ========= INDICATORS =========
 def calculate_vwap(df):
-    tp = (df['High'] + df['Low'] + df['Close']) / 3
-    return (tp * df['Volume']).cumsum().iloc[-1] / df['Volume'].cumsum().iloc[-1]
+    tp=(df['High']+df['Low']+df['Close'])/3
+    return (tp*df['Volume']).cumsum().iloc[-1]/df['Volume'].cumsum().iloc[-1]
 
+# ========= ORB CAPTURE =========
 def capture_opening_range(ticker, df):
-    now = datetime.now().time()
-    if dtime(9,15) <= now <= dtime(9,30):
-        opening_range[ticker] = (df['High'].max(), df['Low'].min())
+    now = datetime.now(IST).time()
 
+    # Capture only once per day
+    if ticker in orb_captured:
+        return
+
+    if dtime(9,15) <= now <= dtime(9,35):
+        orb_df = df.between_time("09:15","09:30")
+        if len(orb_df) < 5:
+            return
+
+        high = float(orb_df["High"].max())
+        low  = float(orb_df["Low"].min())
+
+        opening_range[ticker] = (high,low)
+        orb_captured.add(ticker)
+
+# ========= ORB SIGNAL =========
 def check_orb_breakout(ticker, price):
     if ticker not in opening_range:
         return None
-    high, low = opening_range[ticker]
+    high,low = opening_range[ticker]
     if price > high: return "BUY"
-    if price < low: return "SELL"
+    if price < low:  return "SELL"
     return None
 
-# ========= GAP SCANNER =========
-def gap_scanner():
-    global gap_scan_done
-    now = datetime.now().time()
-    if gap_scan_done or not (dtime(9,15) <= now <= dtime(9,20)):
-        return
-
-    gap_up, gap_down = [], []
-    for ticker in SYMBOLS:
-        try:
-            df = yf.download(ticker, period="2d", interval="1d", progress=False)
-            if len(df) < 2: continue
-            gap = (df['Open'].iloc[-1] - df['Close'].iloc[-2]) / df['Close'].iloc[-2] * 100
-            if gap > 1:
-                gap_up_today.add(ticker)
-                gap_up.append(f"{ticker} (+{gap:.2f}%)")
-            elif gap < -1:
-                gap_down_today.add(ticker)
-                gap_down.append(f"{ticker} ({gap:.2f}%)")
-        except:
-            pass
-
-    msg = "<b>📊 GAP WATCHLIST</b>\n\n"
-    msg += "🚀 Gap Up:\n" + "\n".join(gap_up[:10]) + "\n\n"
-    msg += "🔻 Gap Down:\n" + "\n".join(gap_down[:10])
-    send_telegram_msg(msg)
-    gap_scan_done = True
-
-# ========= SCORING =========
-def calculate_score(ticker, orb_signal, price, ema20, vwap, volume_spike):
-    score = 0
-    if orb_signal: score += 2
-    if orb_signal=="BUY" and price>vwap: score += 2
-    if orb_signal=="SELL" and price<vwap: score += 2
-    if orb_signal=="BUY" and price>ema20: score += 1
-    if orb_signal=="SELL" and price<ema20: score += 1
-    if volume_spike: score += 1
-    if ticker in gap_up_today or ticker in gap_down_today: score += 1
-    return score
-
-def get_rating(score):
-    if score>=6: return "⭐⭐⭐ STRONG"
-    if score>=4: return "⭐⭐ MEDIUM"
-    return "⭐ WEAK"
+# ========= DAILY RESET =========
+def daily_reset():
+    global alerted_today, orb_captured, opening_range
+    now = datetime.now(IST).time()
+    if now > dtime(15,31):
+        alerted_today.clear()
+        orb_captured.clear()
+        opening_range.clear()
 
 # ========= MAIN SCANNER =========
 def scan_and_alert():
+
+    global capital
+    now = datetime.now(IST)
+    print("\n⏱ Running scan:", now)
+
     for ticker in SYMBOLS:
         try:
-            df = yf.download(ticker, period="1d", interval="1m", progress=False)
-            if df.empty: continue
+            df = yf.download(ticker,period="1d",interval="1m",progress=False)
+            if df.empty:
+                continue
 
-            capture_opening_range(ticker, df)
+            # ⭐ FIX MULTI INDEX BUG
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
 
-            price = df['Close'].iloc[-1]
-            ema20 = df['Close'].ewm(span=20).mean().iloc[-1]
-            vwap = calculate_vwap(df)
+            df = df[['Open','High','Low','Close','Volume']]
 
-            avg_vol = df['Volume'].rolling(20).mean().iloc[-1]
-            volume_spike = df['Volume'].iloc[-1] > 2*avg_vol
+            capture_opening_range(ticker,df)
 
-            orb_signal = check_orb_breakout(ticker, price)
-            score = calculate_score(ticker, orb_signal, price, ema20, vwap, volume_spike)
-            rating = get_rating(score)
+            price = float(df['Close'].iloc[-1])
+            ema20 = float(df['Close'].ewm(span=20).mean().iloc[-1])
+            vwap  = float(calculate_vwap(df))
 
-            if ticker not in alerted_today and orb_signal and score>=4:
-                alerted_today.add(ticker)
-                emoji = "🚀" if orb_signal=="BUY" else "🔻"
-                msg = (f"{emoji} <b>{rating} SIGNAL</b>\n"
-                       f"{ticker}\nSignal: {orb_signal}\nScore: {score}/7\nPrice: ₹{price:.2f}")
-                send_telegram_msg(msg)
+            # check exits first
+            exit_msg = check_exit(ticker,price)
+            if exit_msg:
+                send_telegram_msg(exit_msg)
+
+            orb_signal = check_orb_breakout(ticker,price)
+            if not orb_signal or ticker in alerted_today:
+                continue
+
+            # VWAP filter
+            if (orb_signal=="BUY" and price<vwap) or (orb_signal=="SELL" and price>vwap):
+                continue
+
+            alerted_today.add(ticker)
+
+            high,low = opening_range[ticker]
+            risk = (high-low)*0.6
+
+            if orb_signal=="BUY":
+                entry=high; sl=entry-risk; tgt=entry+(risk*2)
+            else:
+                entry=low; sl=entry+risk; tgt=entry-(risk*2)
+
+            qty = open_trade(ticker,orb_signal,entry,sl,tgt)
+
+            msg=(f"📢 PAPER TRADE OPEN\n{ticker}\n{orb_signal}\n"
+                 f"Entry ₹{entry:.2f}\nSL ₹{sl:.2f}\nTarget ₹{tgt:.2f}\n"
+                 f"Qty {qty}\nCapital ₹{round(capital,2)}")
+
+            send_telegram_msg(msg)
 
         except Exception as e:
-            print("Error:", ticker, e)
+            print("Error",ticker,e)
 
 # ========= LOOP =========
-print("BOT STARTED")
+print("BOT STARTED 🚀")
+send_telegram_msg("🤖 ORB Paper Trading Bot Running")
+
 while True:
     if is_market_open():
-        gap_scanner()
+        print("✅ Market OPEN")
         scan_and_alert()
     else:
-        print("Market closed…")
-    time.sleep(900)
+        print("😴 Market closed")
+
+    daily_reset()
+    time.sleep(300)  # 5 minutes
