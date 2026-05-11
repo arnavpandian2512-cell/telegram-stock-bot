@@ -10,6 +10,16 @@ import pandas as pd
 import time
 import pytz
 from datetime import datetime, time as dtime
+from flask import Flask
+from threading import Thread
+import os
+
+
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Stock bot running!"
 
 # ========= TELEGRAM =========
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -209,13 +219,47 @@ def scan_and_alert():
 # ========= LOOP =========
 print("🚀 BOT STARTED")
 
-while True:
-    try:
-        if is_market_open():
-            scan_and_alert()
-        send_daily_report()
-        daily_reset()
-    except Exception as e:
-        print("Bot error:",e)
+# ================================
+# BACKGROUND BOT LOOP (Render Safe)
+# ================================
 
-    time.sleep(600)
+def run_bot():
+    print("🚀 BOT STARTED (Render Web Service)")
+    send_telegram_msg("🤖 Paper trading Bot started")
+
+    while True:
+        try:
+            if is_market_open():
+                print("✅ Market OPEN → Scanning market")
+                scan_and_alert()
+            else:
+                print("😴 Market closed")
+
+            daily_reset()
+
+        except Exception as e:
+            print("❌ Bot loop error:", e)
+
+        time.sleep(300)   # run every 5 minutes
+
+
+# ================================
+# START BACKGROUND THREAD
+# ================================
+Thread(target=run_bot, daemon=True).start()
+
+
+# ================================
+# FLASK ROUTE (Required by Render)
+# ================================
+@app.route("/")
+def home():
+    return "Stock Bot Running 🚀"
+
+
+# ================================
+# START WEB SERVER (Render needs this)
+# ================================
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
