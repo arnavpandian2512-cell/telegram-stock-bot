@@ -100,8 +100,11 @@ def close_trade(ticker,price,reason):
     capital+=pnl
     daily_trades+=1
     daily_pnl+=pnl
-    if pnl>0: daily_wins+=1
-    else: daily_losses+=1
+
+    if pnl>0:
+        daily_wins+=1
+    else:
+        daily_losses+=1
 
     log_trade_csv(ticker,t["dir"],t["entry"],price,qty,pnl)
     del open_trades[ticker]
@@ -144,8 +147,10 @@ def check_orb_breakout(ticker,price):
 # ========= DAILY REPORT =========
 def send_daily_report():
     global daily_report_sent
+
     now=datetime.now(IST)
 
+    # Send report after market close once
     if now.hour==15 and now.minute>=35 and not daily_report_sent:
         winrate=(daily_wins/daily_trades*100) if daily_trades>0 else 0
 
@@ -163,8 +168,13 @@ def send_daily_report():
 def daily_reset():
     global daily_trades,daily_wins,daily_losses,daily_pnl,daily_report_sent
     now=datetime.now(IST)
-    if now.hour==16:
-        daily_trades=daily_wins=daily_losses=daily_pnl=0
+
+    # Reset after midnight
+    if now.hour==0 and now.minute<5:
+        daily_trades=0
+        daily_wins=0
+        daily_losses=0
+        daily_pnl=0
         daily_report_sent=False
         alerted_today.clear()
         orb_captured.clear()
@@ -218,9 +228,11 @@ def run_bot():
         try:
             if is_market_open():
                 scan_and_alert()
+
             send_daily_report()
             daily_reset()
             time.sleep(600)
+
         except Exception as e:
             print("Bot error:",e)
 
