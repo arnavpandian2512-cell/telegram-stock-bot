@@ -3,7 +3,7 @@ import yfinance as yf
 import requests
 import pandas as pd
 import time
-from datetime import datetime, time as dtime
+from datetime import datetime
 
 # ========= CONFIG =========
 TEST_MODE = False
@@ -33,7 +33,6 @@ def check_exit(ticker, price):
 
     t = open_trades[ticker]
 
-    # LONG
     if t["dir"]=="BUY":
         if price <= t["sl"]:
             loss = (t["entry"]-t["sl"])*t["qty"]
@@ -47,7 +46,6 @@ def check_exit(ticker, price):
             del open_trades[ticker]
             return f"✅ TARGET HIT {ticker}\nProfit ₹{round(profit,2)}\nCapital ₹{round(capital,2)}"
 
-    # SHORT
     if t["dir"]=="SELL":
         if price >= t["sl"]:
             loss = (t["sl"]-t["entry"])*t["qty"]
@@ -93,13 +91,25 @@ def calculate_vwap(df):
     tp=(df['High']+df['Low']+df['Close'])/3
     return (tp*df['Volume']).cumsum().iloc[-1]/df['Volume'].cumsum().iloc[-1]
 
+# ⭐ FIXED ORB (works anytime during day)
 def capture_opening_range(ticker, df):
-    now=datetime.now().time()
-    if dtime(9,15)<=now<=dtime(9,30):
-        opening_range[ticker]=(df['High'].max(),df['Low'].min())
+    if ticker in opening_range:
+        return
+
+    orb_df = df.between_time("09:15","09:30")
+
+    if len(orb_df) < 5:
+        return
+
+    high = orb_df["High"].max()
+    low  = orb_df["Low"].min()
+
+    opening_range[ticker] = (high, low)
+    print(f"📌 ORB captured {ticker} High:{high:.2f} Low:{low:.2f}")
 
 def check_orb_breakout(ticker, price):
-    if ticker not in opening_range: return None
+    if ticker not in opening_range:
+        return None
     high,low=opening_range[ticker]
     if price>high: return "BUY"
     if price<low: return "SELL"
@@ -108,11 +118,21 @@ def check_orb_breakout(ticker, price):
 # ========= MAIN SCANNER =========
 def scan_and_alert():
     global capital
+    print("📡 Fetching NIFTY50 data...")
 
     for ticker in SYMBOLS:
+        print("Checking:", ticker)
+
         try:
             df=yf.download(ticker,period="1d",interval="1m",progress=False)
-            if df.empty: continue
+
+            if df.empty:
+                print("No data:", ticker)
+                continue
+
+            # FIX multi-index bug
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
 
             capture_opening_range(ticker,df)
 
@@ -120,15 +140,18 @@ def scan_and_alert():
             ema20=df['Close'].ewm(span=20).mean().iloc[-1]
             vwap=calculate_vwap(df)
 
-            # check exits first
+            # EXIT CHECK
             exit_msg=check_exit(ticker,price)
             if exit_msg:
                 send_telegram_msg(exit_msg)
 
+            # ENTRY CHECK
             orb_signal=check_orb_breakout(ticker,price)
+
             if not orb_signal or ticker in alerted_today:
                 continue
 
+            # VWAP FILTER
             if (orb_signal=="BUY" and price<vwap) or (orb_signal=="SELL" and price>vwap):
                 continue
 
@@ -158,8 +181,13 @@ print("BOT STARTED 🚀")
 send_telegram_msg("🤖 Paper Trading Bot Started")
 
 while True:
+    print("\n⏱ Running scan:", datetime.now())
+
     if is_market_open():
+        print("✅ Market OPEN")
         scan_and_alert()
     else:
-        print("Market closed")
-    time.sleep(300)   # every 5 minutes
+        print("❌ Market CLOSED")
+
+    print("😴 Sleeping 5 minutes...")
+    time.sleep(300)

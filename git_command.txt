@@ -1,0 +1,5 @@
+git remote remove origin
+git remote add origin https://github.com/arnavpandian2512-cell/telegram-stock-bot.git
+git branch -M main
+git push -u origin main
+git commit -m "first commit"
