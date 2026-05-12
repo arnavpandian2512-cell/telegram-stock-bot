@@ -243,11 +243,17 @@ def run():
 
         time.sleep(300)
 
-Thread(target=run, daemon=True).start()
 
 @app.route("/")
 def home():
-    return "Bot Running 🚀"
+    return "Stock Bot Running 🚀"
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+# Start bot when first request hits the server
+@app.before_first_request
+def start_bot():
+    print("🚀 Starting background bot thread...")
+    Thread(target=run_bot, daemon=True).start()
+
+if __name__=="__main__":
+    port=int(os.environ.get("PORT",10000))
+    app.run(host="0.0.0.0",port=port)
