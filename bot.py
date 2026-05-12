@@ -248,12 +248,13 @@ def run():
 def home():
     return "Stock Bot Running 🚀"
 
-# Start bot when first request hits the server
-@app.before_first_request
-def start_bot():
-    print("🚀 Starting background bot thread...")
+
+if __name__ == "__main__":
+    print("🚀 BOT LOOP STARTING WITH FLASK")
+
+    # start background trading bot
     Thread(target=run_bot, daemon=True).start()
 
-if __name__=="__main__":
-    port=int(os.environ.get("PORT",10000))
-    app.run(host="0.0.0.0",port=port)
+    # start web server (required by Render)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
