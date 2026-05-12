@@ -1,16 +1,21 @@
 import os
-import time
-import datetime
+import yfinance as yf
 import requests
 import pandas as pd
-import yfinance as yf
+import time
+import pytz
+from datetime import datetime, time as dtime
 from flask import Flask
 from threading import Thread
 
+# ========= TIME =========
+IST = pytz.timezone("Asia/Kolkata")
 # ================= TELEGRAM =================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
+
+#======== TELEGRAM ========
 def send_telegram_msg(msg):
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -139,7 +144,10 @@ def daily_reset():
 
 # ================= SMART SCANNER =================
 def scan():
+    global capital
+    print("🔎 Starting NIFTY scan...")
     try:
+        time.sleep(1)  # prevent Yahoo rate limit
         data = yf.download(
             tickers=" ".join(SYMBOLS),
             period="1d",
@@ -198,16 +206,29 @@ def scan():
 
 # ================= MAIN LOOP =================
 def run_bot():
+    print("BOT STARTED 🚀")
     send_telegram_msg("🤖 Bot LIVE on Render")
 
     while True:
-        if is_market_open():
-            scan()
-        daily_reset()
-        time.sleep(600)  # 10 minutes
+        try:
+            now = datetime.now(IST)
+            print(f"\n⏰ Loop running at {now.strftime('%H:%M:%S')}")
+
+            if is_market_open():
+                print("📈 Market is OPEN — scanning stocks...")
+                scan()
+            else:
+                print("😴 Market closed")
+
+        except Exception as e:
+            print("🔥 LOOP ERROR:", e)
+            send_telegram_msg(f"Bot Error: {e}")
+
+        time.sleep(600)   # 10 min
 
 # ================= START =================
 Thread(target=run_bot, daemon=True).start()
 
 port = int(os.environ.get("PORT", 10000))
 app.run(host="0.0.0.0", port=port)
+print("✅ Scan cycle completed")
