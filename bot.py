@@ -15,6 +15,10 @@ IST = pytz.timezone("Asia/Kolkata")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
+def test_telegram():
+    send_telegram_message("✅ BOT TEST MESSAGE — Telegram working!")
+
+
 def send_telegram_msg(msg):
     try:
         if not BOT_TOKEN:
@@ -215,6 +219,7 @@ def scan():
 # ================= MAIN LOOP =================
 def run_bot():
     print("BOT STARTED 🚀")
+    test_telegram()
     send_telegram_msg("🤖 Bot LIVE on Render")
 
     while True:
