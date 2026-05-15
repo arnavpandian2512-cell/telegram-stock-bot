@@ -155,42 +155,25 @@ def check_orb(symbol, price):
 
 # ================= SCANNER (WITH DEBUG) =================
 def scan():
-    print("📡 Downloading market data from Yahoo...")
+    print("📡 Starting symbol-by-symbol scan...")
 
-    try:
-        start_time = time.time()
+    for ticker in SYMBOLS:
+        try:
+            print(f"⬇️ Fetching {ticker}")
 
-        data = yf.download(
-            tickers=" ".join(SYMBOLS),
-            period="1d",
-            interval="1m",
-            group_by='ticker',
-            threads=False,   # ⭐ VERY IMPORTANT (fix freeze)
-            progress=False
-        )
+            df = yf.download(
+                ticker,
+                period="1d",
+                interval="1m",
+                progress=False,
+                threads=False
+            )
 
-        print(f"⏱ Download time: {round(time.time()-start_time,2)} sec")
-
-        # ⭐ Timeout protection (if Yahoo hangs)
-        if time.time() - start_time > 60:
-            print("⚠️ Yahoo download too slow — skipping cycle")
-            return
-
-        if data.empty:
-            print("❌ Yahoo returned EMPTY data (rate limit)")
-            return
-
-        print("✅ Data received")
-
-        for ticker in SYMBOLS:
-            if ticker not in data:
-                print("No data:", ticker)
-                continue
-
-            df = data[ticker].dropna()
             if df.empty or len(df) < 30:
-                print("⚠️ Not enough data:", ticker)
+                print("⚠️ No data:", ticker)
                 continue
+
+            df = df.dropna()
 
             capture_orb(ticker, df)
 
@@ -227,8 +210,10 @@ def scan():
                 f"🚀 TRADE OPEN\n{ticker}\n{signal}\nEntry:{round(entry,2)}\nSL:{round(sl,2)}\nTarget:{round(tgt,2)}\nQty:{qty}"
             )
 
-    except Exception as e:
-        print("SCAN ERROR:", e)
+            time.sleep(2)   # ⭐ anti-rate-limit delay
+
+        except Exception as e:
+            print("❌ Error fetching", ticker, e)
 
 # ================================
 # MAIN STARTUP (PRODUCTION RENDER)
