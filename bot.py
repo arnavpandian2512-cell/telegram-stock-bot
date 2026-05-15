@@ -172,25 +172,35 @@ def check_orb(symbol, price):
     return None
 
 # ================= SCANNER (WITH DEBUG) =================
+def get_data_safe(ticker):
+    """Download safely with retry + rate limit protection"""
+    try:
+        df = yf.download(
+            ticker,
+            period="1d",
+            interval="1m",
+            progress=False,
+            threads=False
+        )
+        if df.empty:
+            return None
+        return df
+    except Exception as e:
+        print("Yahoo error:", ticker, e)
+        return None
+
+
 def scan():
     print("📡 Starting symbol-by-symbol scan...")
 
     for ticker in SYMBOLS:
         try:
             print(f"⬇️ Fetching {ticker}")
+            df = get_data_safe(ticker)
 
-            # ⭐ fetch ONE stock at a time (anti-freeze fix)
-            df = yf.download(
-                ticker,
-                period="1d",
-                interval="1m",
-                progress=False,
-                threads=False,
-                timeout=20
-            )
-
-            if df.empty or len(df) < 30:
+            if df is None or len(df) < 30:
                 print("⚠️ No data:", ticker)
+                time.sleep(5)
                 continue
 
             df = df.dropna()
@@ -205,7 +215,9 @@ def scan():
 
             signal = check_orb(ticker, price)
             if not signal or ticker in alerted_today:
+                time.sleep(4)
                 continue
+
             if not can_take_trade():
                 continue
 
@@ -230,11 +242,11 @@ def scan():
                 f"🚀 TRADE OPEN\n{ticker}\n{signal}\nEntry:{round(entry,2)}\nSL:{round(sl,2)}\nTarget:{round(tgt,2)}\nQty:{qty}"
             )
 
-            time.sleep(2)  # ⭐ avoid Yahoo rate limit
+            time.sleep(6)   # ⭐ VERY IMPORTANT (rate limit protection)
 
         except Exception as e:
-            print("❌ Error fetching", ticker, e)
-            continue
+            print("Symbol error:", ticker, e)
+            time.sleep(5)
 
     print("✅ Scan cycle completed")
 
@@ -274,7 +286,7 @@ if __name__ == "__main__":
             else:
                 print("😴 Market closed")
 
-            time.sleep(90)  # scan every 90 sec
+            time.sleep(180)  # scan every 90 sec
 
         except Exception as e:
             print("🔥 MAIN LOOP ERROR:", e)
