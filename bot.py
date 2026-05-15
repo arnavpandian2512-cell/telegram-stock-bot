@@ -173,17 +173,70 @@ def check_orb(symbol, price):
 
 # ================= SCANNER (WITH DEBUG) =================
 def scan():
-    print("📡 NSE LIVE SCAN")
+    print("📡 Starting symbol-by-symbol scan...")
 
-    for symbol in SYMBOLS:
-        price = get_live_price(symbol)
+    for ticker in SYMBOLS:
+        try:
+            print(f"⬇️ Fetching {ticker}")
 
-        if price:
-            print(f"💰 {symbol} = {price}")
-        else:
-            print(f"❌ Failed {symbol}")
+            # ⭐ fetch ONE stock at a time (anti-freeze fix)
+            df = yf.download(
+                ticker,
+                period="1d",
+                interval="1m",
+                progress=False,
+                threads=False,
+                timeout=20
+            )
 
-        time.sleep(1)
+            if df.empty or len(df) < 30:
+                print("⚠️ No data:", ticker)
+                continue
+
+            df = df.dropna()
+
+            capture_orb(ticker, df)
+
+            price = float(df['Close'].iloc[-1])
+            vwap = calculate_vwap(df).iloc[-1]
+            ema20 = ema(df).iloc[-1]
+
+            check_exit(ticker, price)
+
+            signal = check_orb(ticker, price)
+            if not signal or ticker in alerted_today:
+                continue
+            if not can_take_trade():
+                continue
+
+            if signal == "BUY" and (price < vwap or price < ema20):
+                continue
+            if signal == "SELL" and (price > vwap or price > ema20):
+                continue
+
+            alerted_today.add(ticker)
+
+            high, low = opening_range[ticker]
+            risk = (high - low) * 0.6
+
+            if signal == "BUY":
+                entry, sl, tgt = high, high-risk, high+(risk*2)
+            else:
+                entry, sl, tgt = low, low+risk, low-(risk*2)
+
+            qty = open_trade(ticker, signal, entry, sl, tgt)
+
+            send_telegram_msg(
+                f"🚀 TRADE OPEN\n{ticker}\n{signal}\nEntry:{round(entry,2)}\nSL:{round(sl,2)}\nTarget:{round(tgt,2)}\nQty:{qty}"
+            )
+
+            time.sleep(2)  # ⭐ avoid Yahoo rate limit
+
+        except Exception as e:
+            print("❌ Error fetching", ticker, e)
+            continue
+
+    print("✅ Scan cycle completed")
 
 # ================================
 # MAIN STARTUP (PRODUCTION RENDER)
