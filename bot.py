@@ -156,24 +156,37 @@ def check_orb(symbol, price):
 # ================= SCANNER (WITH DEBUG) =================
 def scan():
     print("📡 Downloading market data from Yahoo...")
+
     try:
+        start_time = time.time()
+
         data = yf.download(
             tickers=" ".join(SYMBOLS),
             period="1d",
             interval="1m",
             group_by='ticker',
-            threads=True,
+            threads=False,   # ⭐ VERY IMPORTANT (fix freeze)
             progress=False
         )
+
+        print(f"⏱ Download time: {round(time.time()-start_time,2)} sec")
+
+        # ⭐ Timeout protection (if Yahoo hangs)
+        if time.time() - start_time > 60:
+            print("⚠️ Yahoo download too slow — skipping cycle")
+            return
 
         if data.empty:
             print("❌ Yahoo returned EMPTY data (rate limit)")
             return
-        else:
-            print("✅ Data received")
+
+        print("✅ Data received")
 
         for ticker in SYMBOLS:
-            if ticker not in data: continue
+            if ticker not in data:
+                print("No data:", ticker)
+                continue
+
             df = data[ticker].dropna()
             if df.empty or len(df) < 30:
                 print("⚠️ Not enough data:", ticker)
@@ -188,11 +201,15 @@ def scan():
             check_exit(ticker, price)
 
             signal = check_orb(ticker, price)
-            if not signal or ticker in alerted_today: continue
-            if not can_take_trade(): continue
+            if not signal or ticker in alerted_today:
+                continue
+            if not can_take_trade():
+                continue
 
-            if signal == "BUY" and (price < vwap or price < ema20): continue
-            if signal == "SELL" and (price > vwap or price > ema20): continue
+            if signal == "BUY" and (price < vwap or price < ema20):
+                continue
+            if signal == "SELL" and (price > vwap or price > ema20):
+                continue
 
             alerted_today.add(ticker)
 
