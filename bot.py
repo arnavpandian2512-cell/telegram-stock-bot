@@ -8,6 +8,14 @@ from datetime import datetime
 from flask import Flask
 from threading import Thread
 
+HEADERS = {
+    "User-Agent": "Mozilla/5.0",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+}
+session = requests.Session()
+session.get("https://www.nseindia.com", headers=HEADERS)
+
 # ================= TIME =================
 IST = pytz.timezone("Asia/Kolkata")
 
@@ -26,6 +34,16 @@ def send_telegram_msg(msg):
         print("📨 TELEGRAM:", msg)
     except Exception as e:
         print("Telegram error:", e)
+#============= NSE LIVE PRICE =============
+def get_live_price(symbol):
+    try:
+        url = f"https://www.nseindia.com/api/quote-equity?symbol={symbol}"
+        res = session.get(url, headers=HEADERS, timeout=10)
+        data = res.json()
+        return data["priceInfo"]["lastPrice"]
+    except Exception as e:
+        print("NSE error:", symbol, e)
+        return None
 
 # ================= FLASK =================
 app = Flask(__name__)
@@ -42,11 +60,11 @@ MAX_TRADES_PER_DAY = 3
 
 # ================= SYMBOLS =================
 SYMBOLS = [
-    "RELIANCE.NS","HDFCBANK.NS","ICICIBANK.NS","INFY.NS","TCS.NS",
-    "SBIN.NS","LT.NS","ITC.NS","AXISBANK.NS","KOTAKBANK.NS",
-    "ADANIENT.NS","ADANIPORTS.NS","HINDUNILVR.NS","BAJFINANCE.NS",
-    "BHARTIARTL.NS","ASIANPAINT.NS","MARUTI.NS","SUNPHARMA.NS",
-    "TITAN.NS","ULTRACEMCO.NS"
+    "RELIANCE","HDFCBANK","ICICIBANK","INFY","TCS",
+    "SBIN","LT","ITC","AXISBANK","KOTAKBANK",
+    "ADANIENT","ADANIPORTS","HINDUNILVR","BAJFINANCE",
+    "BHARTIARTL","ASIANPAINT","MARUTI","SUNPHARMA",
+    "TITAN","ULTRACEMCO"
 ]
 
 opening_range = {}
@@ -155,65 +173,17 @@ def check_orb(symbol, price):
 
 # ================= SCANNER (WITH DEBUG) =================
 def scan():
-    print("📡 Starting symbol-by-symbol scan...")
+    print("📡 NSE LIVE SCAN")
 
-    for ticker in SYMBOLS:
-        try:
-            print(f"⬇️ Fetching {ticker}")
+    for symbol in SYMBOLS:
+        price = get_live_price(symbol)
 
-            df = yf.download(
-                ticker,
-                period="1d",
-                interval="1m",
-                progress=False,
-                threads=False
-            )
+        if price:
+            print(f"💰 {symbol} = {price}")
+        else:
+            print(f"❌ Failed {symbol}")
 
-            if df.empty or len(df) < 30:
-                print("⚠️ No data:", ticker)
-                continue
-
-            df = df.dropna()
-
-            capture_orb(ticker, df)
-
-            price = float(df['Close'].iloc[-1])
-            vwap = calculate_vwap(df).iloc[-1]
-            ema20 = ema(df).iloc[-1]
-
-            check_exit(ticker, price)
-
-            signal = check_orb(ticker, price)
-            if not signal or ticker in alerted_today:
-                continue
-            if not can_take_trade():
-                continue
-
-            if signal == "BUY" and (price < vwap or price < ema20):
-                continue
-            if signal == "SELL" and (price > vwap or price > ema20):
-                continue
-
-            alerted_today.add(ticker)
-
-            high, low = opening_range[ticker]
-            risk = (high - low) * 0.6
-
-            if signal == "BUY":
-                entry, sl, tgt = high, high-risk, high+(risk*2)
-            else:
-                entry, sl, tgt = low, low+risk, low-(risk*2)
-
-            qty = open_trade(ticker, signal, entry, sl, tgt)
-
-            send_telegram_msg(
-                f"🚀 TRADE OPEN\n{ticker}\n{signal}\nEntry:{round(entry,2)}\nSL:{round(sl,2)}\nTarget:{round(tgt,2)}\nQty:{qty}"
-            )
-
-            time.sleep(2)   # ⭐ anti-rate-limit delay
-
-        except Exception as e:
-            print("❌ Error fetching", ticker, e)
+        time.sleep(1)
 
 # ================================
 # MAIN STARTUP (PRODUCTION RENDER)
