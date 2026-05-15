@@ -210,6 +210,8 @@ if __name__ == "__main__":
         try:
             now = datetime.now(IST)
             print(f"\n⏰ Heartbeat {now.strftime('%H:%M:%S')}")
+            if now.minute % 30 == 0 and now.second < 5:
+                send_telegram_msg("💓 Bot heartbeat — running OK")
 
             daily_reset()
 
