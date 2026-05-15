@@ -15,9 +15,6 @@ IST = pytz.timezone("Asia/Kolkata")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
-def test_telegram():
-    send_telegram_msg("✅ BOT TEST MESSAGE — Telegram working!")
-
 
 def send_telegram_msg(msg):
     try:
@@ -216,16 +213,31 @@ def scan():
     except Exception as e:
         print("SCAN ERROR:", e)
 
-# ================= MAIN LOOP =================
-def run_bot():
-    print("BOT STARTED 🚀")
-    test_telegram()
-    send_telegram_msg("🤖 Bot LIVE on Render")
+# ================================
+# MAIN STARTUP (PRODUCTION RENDER)
+# ================================
+if __name__ == "__main__":
 
+    print("🤖 BOT STARTED — MAIN PROCESS")
+
+    # send startup message
+    send_telegram_msg("🚀 Bot LIVE on Render")
+
+    # start Flask ONLY for health check in background
+    def run_flask():
+        print("🌐 Flask health server started")
+        port = int(os.environ.get("PORT", 10000))
+        app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+
+    Thread(target=run_flask).start()
+
+    # ================================
+    # MAIN TRADING LOOP (IMPORTANT)
+    # ================================
     while True:
         try:
             now = datetime.now(IST)
-            print(f"\n⏰ Loop {now.strftime('%H:%M:%S')}  🔁 Heartbeat OK")
+            print(f"\n⏰ Heartbeat {now.strftime('%H:%M:%S')}")
 
             daily_reset()
 
@@ -235,17 +247,9 @@ def run_bot():
             else:
                 print("😴 Market closed")
 
+            time.sleep(90)  # scan every 90 sec
+
         except Exception as e:
-            print("🔥 LOOP ERROR:", e)
+            print("🔥 MAIN LOOP ERROR:", e)
             send_telegram_msg(f"Bot Error: {e}")
-
-        time.sleep(90)   # ⭐ scan every 90 seconds
-
-# ================= START =================
-if __name__ == "__main__":
-    print("🚀 Starting background thread")
-    Thread(target=run_bot, daemon=True).start()
-
-    print("🌐 Starting Flask server")
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+            time.sleep(60)
