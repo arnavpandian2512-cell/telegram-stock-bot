@@ -4,7 +4,7 @@ import requests
 import pandas as pd
 import time
 import pytz
-from datetime import datetime, time as dtime
+from datetime import datetime
 from flask import Flask
 from threading import Thread
 
@@ -52,10 +52,12 @@ opening_range = {}
 alerted_today = set()
 open_positions = {}
 
-# ================= MARKET TIME =================
+# ================= MARKET TIME FIX =================
 def is_market_open():
-    now = datetime.now(IST).time()
-    return dtime(9,15) <= now <= dtime(15,30)
+    now = datetime.now(IST)
+    start = now.replace(hour=9, minute=15, second=0, microsecond=0)
+    end   = now.replace(hour=15, minute=30, second=0, microsecond=0)
+    return now.weekday() < 5 and start <= now <= end
 
 # ================= INDICATORS =================
 def calculate_vwap(df):
@@ -69,7 +71,6 @@ def daily_reset():
     global trade_count, daily_pnl, alerted_today, opening_range
     now = datetime.now(IST)
 
-    # 9:10 reset
     if now.hour == 9 and now.minute == 10:
         print("🔄 Daily reset executed")
         trade_count = 0
@@ -78,7 +79,6 @@ def daily_reset():
         opening_range.clear()
         send_telegram_msg("🔄 New Trading Day Started")
 
-    # 3:35 report
     if now.hour == 15 and now.minute == 35:
         send_telegram_msg(f"📊 Daily PnL ₹{round(daily_pnl,2)}")
 
@@ -89,7 +89,6 @@ def can_take_trade():
 # ================= OPEN / EXIT =================
 def open_trade(symbol, direction, entry, sl, tgt):
     global capital, trade_count
-
     risk_per_trade = capital * 0.01
     qty = int(risk_per_trade / abs(entry - sl))
     if qty <= 0:
@@ -102,13 +101,11 @@ def open_trade(symbol, direction, entry, sl, tgt):
         "tgt": tgt,
         "qty": qty
     }
-
     trade_count += 1
     return qty
 
 def check_exit(symbol, price):
     global capital, daily_pnl
-
     if symbol not in open_positions:
         return
 
@@ -128,11 +125,24 @@ def check_exit(symbol, price):
         send_telegram_msg(f"🏁 EXIT {symbol}  PnL ₹{round(pnl,2)}")
         del open_positions[symbol]
 
-# ================= ORB =================
+# ================= ORB FIX (REAL TIME BASED) =================
 def capture_orb(symbol, df):
-    if symbol in opening_range or len(df) < 15:
+    if symbol in opening_range:
         return
-    opening_range[symbol] = (df['High'].iloc[:15].max(), df['Low'].iloc[:15].min())
+    try:
+        df = df.tz_localize(None)
+        orb_df = df.between_time("09:15", "09:30")
+
+        if len(orb_df) < 5:
+            return
+
+        high = orb_df['High'].max()
+        low  = orb_df['Low'].min()
+        opening_range[symbol] = (high, low)
+
+        print(f"📦 ORB captured {symbol}: {round(high,2)} / {round(low,2)}")
+    except Exception as e:
+        print("ORB error:", symbol, e)
 
 def check_orb(symbol, price):
     if symbol not in opening_range:
@@ -142,11 +152,10 @@ def check_orb(symbol, price):
     if price < low:  return "SELL"
     return None
 
-# ================= SCANNER =================
+# ================= SCANNER (WITH DEBUG) =================
 def scan():
-    print("🔎 Starting NIFTY scan...")
+    print("📡 Downloading market data from Yahoo...")
     try:
-        # SINGLE bulk download (fix rate limit)
         data = yf.download(
             tickers=" ".join(SYMBOLS),
             period="1d",
@@ -156,11 +165,18 @@ def scan():
             progress=False
         )
 
+        if data.empty:
+            print("❌ Yahoo returned EMPTY data (rate limit)")
+            return
+        else:
+            print("✅ Data received")
+
         for ticker in SYMBOLS:
             if ticker not in data: continue
-
             df = data[ticker].dropna()
-            if df.empty or len(df) < 30: continue
+            if df.empty or len(df) < 30:
+                print("⚠️ Not enough data:", ticker)
+                continue
 
             capture_orb(ticker, df)
 
@@ -204,7 +220,7 @@ def run_bot():
     while True:
         try:
             now = datetime.now(IST)
-            print(f"\n⏰ Loop running at {now.strftime('%H:%M:%S')}")
+            print(f"\n⏰ Loop {now.strftime('%H:%M:%S')}  🔁 Heartbeat OK")
 
             daily_reset()
 
@@ -218,9 +234,9 @@ def run_bot():
             print("🔥 LOOP ERROR:", e)
             send_telegram_msg(f"Bot Error: {e}")
 
-        time.sleep(600)  # 10 min
+        time.sleep(90)   # ⭐ scan every 90 seconds
 
-# ================= START (RENDER FIX) =================
+# ================= START =================
 if __name__ == "__main__":
     print("🚀 Starting background thread")
     Thread(target=run_bot, daemon=True).start()
