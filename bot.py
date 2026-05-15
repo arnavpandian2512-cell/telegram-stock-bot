@@ -1,5 +1,5 @@
+import json
 import os
-import yfinance as yf
 import requests
 import pandas as pd
 import time
@@ -34,12 +34,22 @@ def send_telegram_msg(msg):
         print("📨 TELEGRAM:", msg)
     except Exception as e:
         print("Telegram error:", e)
-#============= NSE LIVE PRICE =============
-def get_live_price(symbol):
+# ================= NSE SESSION =================
+session = requests.Session()
+session.headers.update({
+    "User-Agent": "Mozilla/5.0",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br"
+})
+
+# Warm-up cookie (VERY IMPORTANT)
+session.get("https://www.nseindia.com")
+
+def get_nse_price(symbol):
     try:
         url = f"https://www.nseindia.com/api/quote-equity?symbol={symbol}"
-        res = session.get(url, headers=HEADERS, timeout=10)
-        data = res.json()
+        r = session.get(url, timeout=10)
+        data = r.json()
         return data["priceInfo"]["lastPrice"]
     except Exception as e:
         print("NSE error:", symbol, e)
@@ -145,69 +155,46 @@ def check_exit(symbol, price):
         del open_positions[symbol]
 
 # ================= ORB FIX (REAL TIME BASED) =================
-def capture_orb(symbol, df):
-    if symbol in opening_range:
-        return
-    try:
-        df = df.tz_localize(None)
-        orb_df = df.between_time("09:15", "09:30")
+orb_buffer = {}
 
-        if len(orb_df) < 5:
+def capture_orb(symbol, price):
+    now = datetime.now(IST)
+
+    # collect prices until 9:30
+    if now.hour == 9 and now.minute < 30:
+        orb_buffer.setdefault(symbol, []).append(price)
+        return
+
+    # once after 9:30 create range
+    if symbol not in opening_range and symbol in orb_buffer:
+        prices = orb_buffer[symbol]
+        if len(prices) < 5:
             return
 
-        high = orb_df['High'].max()
-        low  = orb_df['Low'].min()
+        high = max(prices)
+        low = min(prices)
         opening_range[symbol] = (high, low)
 
         print(f"📦 ORB captured {symbol}: {round(high,2)} / {round(low,2)}")
-    except Exception as e:
-        print("ORB error:", symbol, e)
-
-def check_orb(symbol, price):
-    if symbol not in opening_range:
-        return None
-    high, low = opening_range[symbol]
-    if price > high: return "BUY"
-    if price < low:  return "SELL"
-    return None
 
 # ================= SCANNER (WITH DEBUG) =================
-def get_data_safe(ticker):
-    """Download safely with retry + rate limit protection"""
-    try:
-        df = yf.download(
-            ticker,
-            period="1d",
-            interval="1m",
-            progress=False,
-            threads=False
-        )
-        if df.empty:
-            return None
-        return df
-    except Exception as e:
-        print("Yahoo error:", ticker, e)
-        return None
-
-
+	
 def scan():
-    print("📡 Starting symbol-by-symbol scan...")
+    print("📡 NSE LIVE SCAN RUNNING")
 
     for ticker in SYMBOLS:
         try:
-            print(f"⬇️ Fetching {ticker}")
-            df = get_data_safe(ticker)
-
-            if df is None or len(df) < 30:
-                print("⚠️ No data:", ticker)
-                time.sleep(5)
+            price = get_nse_price(ticker)
+            if not price:
+                time.sleep(2)
                 continue
 
-            df = df.dropna()
+            df = update_fake_candle(ticker, price)
+            if len(df) < 30:
+                continue
 
-            capture_orb(ticker, df)
+            capture_orb(ticker, price)
 
-            price = float(df['Close'].iloc[-1])
             vwap = calculate_vwap(df).iloc[-1]
             ema20 = ema(df).iloc[-1]
 
@@ -215,9 +202,7 @@ def scan():
 
             signal = check_orb(ticker, price)
             if not signal or ticker in alerted_today:
-                time.sleep(4)
                 continue
-
             if not can_take_trade():
                 continue
 
@@ -242,13 +227,12 @@ def scan():
                 f"🚀 TRADE OPEN\n{ticker}\n{signal}\nEntry:{round(entry,2)}\nSL:{round(sl,2)}\nTarget:{round(tgt,2)}\nQty:{qty}"
             )
 
-            time.sleep(6)   # ⭐ VERY IMPORTANT (rate limit protection)
+            time.sleep(1)
 
         except Exception as e:
-            print("Symbol error:", ticker, e)
-            time.sleep(5)
+            print("Scan error:", ticker, e)
 
-    print("✅ Scan cycle completed")
+    print("✅ NSE scan completed")
 
 # ================================
 # MAIN STARTUP (PRODUCTION RENDER)
@@ -275,7 +259,7 @@ if __name__ == "__main__":
         try:
             now = datetime.now(IST)
             print(f"\n⏰ Heartbeat {now.strftime('%H:%M:%S')}")
-            if now.minute % 30 == 0 and now.second < 5:
+            if now.minute in [0,30] and now.second < 180:
                 send_telegram_msg("💓 Bot heartbeat — running OK")
 
             daily_reset()
@@ -286,7 +270,7 @@ if __name__ == "__main__":
             else:
                 print("😴 Market closed")
 
-            time.sleep(180)  # scan every 90 sec
+            time.sleep(60)  # scan every 60 sec
 
         except Exception as e:
             print("🔥 MAIN LOOP ERROR:", e)
