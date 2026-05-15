@@ -16,7 +16,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
 def test_telegram():
-    send_telegram_message("✅ BOT TEST MESSAGE — Telegram working!")
+    send_telegram_msg("✅ BOT TEST MESSAGE — Telegram working!")
 
 
 def send_telegram_msg(msg):
